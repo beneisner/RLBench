@@ -1,6 +1,7 @@
 from multiprocessing import Process, Manager
 
-from pyrep.const import RenderMode
+from pyrep.backend import sim
+from pyrep.const import RenderMode, ObjectType
 
 from rlbench import ObservationConfig
 from rlbench.action_modes.action_mode import MoveArmThenGripper
@@ -38,6 +39,7 @@ flags.DEFINE_integer('episodes_per_task', 10,
                      'The number of episodes to collect per task.')
 flags.DEFINE_integer('variations', -1,
                      'Number of variations to collect per task. -1 for all.')
+flags.DEFINE_bool('debug', False, 'Whether to use multiprocessing.')
 
 
 def check_and_make(dir):
@@ -261,6 +263,11 @@ def run(i, lock, task_index, variation_count, results, file_lock, tasks):
                 variation_path, VARIATION_DESCRIPTIONS), 'wb') as f:
             pickle.dump(descriptions, f)
 
+        handles = {sim.simGetObjectName(handle): handle for handle in sim.simGetObjects(sim.sim_handle_all)}
+        with file_lock:
+            with open(os.path.join(variation_path, "handles.pkl"), 'wb') as f:
+                pickle.dump(handles, f)
+
         episodes_path = os.path.join(variation_path, EPISODES_FOLDER)
         check_and_make(episodes_path)
 
@@ -290,8 +297,22 @@ def run(i, lock, task_index, variation_count, results, file_lock, tasks):
                     abort_variation = True
                     break
                 episode_path = os.path.join(episodes_path, EPISODE_FOLDER % ex_idx)
-                with file_lock:
+                with file_lock:                    
                     save_demo(demo, episode_path)
+
+                    # The "initial objs" in the scene get set at the very beginning of the episode
+                    # after reset. Therefore, we want to save the indices of the initial objs so
+                    # that we can extract the raw state from the observation.
+                    start_ix = 0
+                    raw_state_pos_dict = {}
+                    for i, (obj, _) in enumerate(task_env._scene.task._initial_objs_in_scene):
+                        if obj.get_type() == ObjectType.JOINT or obj.get_type() == ObjectType.FORCE_SENSOR:
+                            raise NotImplementedError("Joint and force sensor not implemented")
+                        raw_state_pos_dict[obj.get_name()] = start_ix
+                        start_ix += 7
+
+                    with open(os.path.join(episode_path, "raw_state_pos_dict.pkl"), 'wb') as f:
+                        pickle.dump(raw_state_pos_dict, f)
                 break
             if abort_variation:
                 break
@@ -323,6 +344,10 @@ def main(argv):
     lock = manager.Lock()
 
     check_and_make(FLAGS.save_path)
+
+    if FLAGS.debug:
+        run(0, lock, task_index, variation_count, result_dict, file_lock, tasks)
+        return
 
     processes = [Process(
         target=run, args=(
