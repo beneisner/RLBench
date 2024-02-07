@@ -306,10 +306,15 @@ def run(i, lock, task_index, variation_count, results, file_lock, tasks):
                     start_ix = 0
                     raw_state_pos_dict = {}
                     for i, (obj, _) in enumerate(task_env._scene.task._initial_objs_in_scene):
-                        if obj.get_type() == ObjectType.JOINT or obj.get_type() == ObjectType.FORCE_SENSOR:
-                            raise NotImplementedError("Joint and force sensor not implemented")
+                        if obj.get_type() == ObjectType.JOINT:
+                            inc_amount = 1
+
+                        elif obj.get_type() == ObjectType.FORCE_SENSOR:
+                            inc_amount = 6
+                        else:
+                            inc_amount = 7
                         raw_state_pos_dict[obj.get_name()] = start_ix
-                        start_ix += 7
+                        start_ix += inc_amount
 
                     with open(os.path.join(episode_path, "raw_state_pos_dict.pkl"), 'wb') as f:
                         pickle.dump(raw_state_pos_dict, f)
